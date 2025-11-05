@@ -71,7 +71,17 @@ class FloorPlanAnalyzer:
 
         # Step 3: Estimate scale
         print("📏 Estimating scale...")
-        scale_info = estimate_scale_multi_method(processed_img, self.params)
+        # Save door visualization if we're saving visualizations
+        door_vis_path = None
+        if save_visualizations:
+            base_name = Path(image_path).stem
+            door_vis_path = str(self.output_dir / f"{base_name}_doors.png")
+
+        scale_info = estimate_scale_multi_method(
+            processed_img,
+            self.params,
+            door_visualization_path=door_vis_path
+        )
         print(f"   Scale: {scale_info.mm_per_pixel:.4f} mm/pixel")
         print(f"   Method: {', '.join(scale_info.detected_features)}")
         print(f"   Confidence: {scale_info.confidence:.2f}")
