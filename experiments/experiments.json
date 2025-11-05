@@ -1,0 +1,28 @@
+[
+  {
+    "timestamp": "2025-11-05T12:05:38.089787",
+    "name": "initial-test",
+    "description": "Analysis of assets/floorplan-scanned-apartment-room-names.png",
+    "result": "Successfully analyzed 0 rooms, total area: 0.00 m\u00b2",
+    "metrics": {
+      "total_area_m2": 0.0,
+      "num_rooms": 0,
+      "scale_confidence": 0.7
+    },
+    "notes": "",
+    "success": true
+  },
+  {
+    "timestamp": "2025-11-05T12:06:47.383686",
+    "name": "corrected-colors",
+    "description": "Analysis of assets/floorplan-scanned-apartment-room-names.png",
+    "result": "Successfully analyzed 8 rooms, total area: 498.01 m\u00b2",
+    "metrics": {
+      "total_area_m2": 498.0113609467456,
+      "num_rooms": 8,
+      "scale_confidence": 0.7
+    },
+    "notes": "",
+    "success": true
+  }
+]
