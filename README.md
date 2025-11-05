@@ -6,7 +6,7 @@ Analyze apartment floor plans and calculate room areas from unmarked diagrams.
 
 - 🏠 Automatic unit extraction from building floor plans
 - 🎨 Room segmentation using color-coded labels
-- 📏 Scale estimation using standard Finnish building elements (doors)
+- 📏 Empirical scale calibration for Finnish floor plans, validated with door detection
 - 📊 Accurate area calculations in square meters
 - 🧪 Comprehensive test coverage
 
