@@ -24,5 +24,18 @@
     },
     "notes": "",
     "success": true
+  },
+  {
+    "timestamp": "2025-11-05T13:59:15.084897",
+    "name": "standards-based-scale",
+    "description": "Analysis of assets/floorplan-scanned-apartment-room-names.png",
+    "result": "Successfully analyzed 8 rooms, total area: 60.50 m\u00b2",
+    "metrics": {
+      "total_area_m2": 60.49762509187349,
+      "num_rooms": 8,
+      "scale_confidence": 0.8666666666666667
+    },
+    "notes": "",
+    "success": true
   }
 ]

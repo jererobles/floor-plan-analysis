@@ -69,9 +69,9 @@ class FloorPlanAnalyzer:
         rooms = segment_rooms(processed_img, tolerance=30, min_area=500)
         print(f"   Found {len(rooms)} rooms: {', '.join(rooms.keys())}")
 
-        # Step 3: Estimate scale
+        # Step 3: Estimate scale (using room standards if available)
         print("📏 Estimating scale...")
-        scale_info = estimate_scale_multi_method(processed_img, self.params)
+        scale_info = estimate_scale_multi_method(processed_img, self.params, rooms)
         print(f"   Scale: {scale_info.mm_per_pixel:.4f} mm/pixel")
         print(f"   Method: {', '.join(scale_info.detected_features)}")
         print(f"   Confidence: {scale_info.confidence:.2f}")

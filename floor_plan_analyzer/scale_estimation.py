@@ -283,28 +283,116 @@ def detect_line_spacing(
     return float(np.median(spacings))
 
 
+def estimate_scale_from_room_standards(
+    image: np.ndarray,
+    rooms: dict,
+) -> Optional[ScaleInfo]:
+    """Estimate scale using Finnish building standards for room sizes.
+
+    Finnish building code regulations specify minimum/typical sizes for various rooms.
+    This provides a reliable method when rooms have been segmented.
+
+    Standards used:
+    - Bathroom (KPH): 3.5-5.5 m² (typical: 4.5 m²)
+    - Toilet (WC): 1.0-2.0 m² (typical: 1.5 m²)
+    - Kitchen (K): 8-12 m² (typical: 10 m²)
+
+    Args:
+        image: Input image
+        rooms: Dictionary of segmented rooms with pixel areas
+
+    Returns:
+        ScaleInfo based on room size standards or None
+    """
+    # Room size standards (in m²)
+    room_standards = {
+        "KPH": (4.5, 0.9),  # (typical size, confidence)
+        "WC": (1.5, 0.85),   # Lower confidence due to high variability
+        "K": (10.0, 0.85),
+    }
+
+    estimates = []
+
+    for room_name, (expected_m2, confidence) in room_standards.items():
+        if room_name in rooms:
+            pixel_area = rooms[room_name].pixel_area
+
+            # Calculate required scale
+            # area_m2 = pixel_area * (mm_per_pixel / 1000)^2
+            # mm_per_pixel = sqrt(area_m2 * 1_000_000 / pixel_area)
+            mm_per_pixel = np.sqrt((expected_m2 * 1_000_000) / pixel_area)
+
+            estimates.append({
+                "room": room_name,
+                "scale": mm_per_pixel,
+                "confidence": confidence,
+            })
+
+    if not estimates:
+        return None
+
+    # Use weighted average based on confidence
+    total_weight = sum(e["confidence"] for e in estimates)
+    weighted_scale = sum(e["scale"] * e["confidence"] for e in estimates) / total_weight
+
+    # Overall confidence is average of individual confidences
+    avg_confidence = np.mean([e["confidence"] for e in estimates])
+
+    # Detect outliers (estimates more than 30% different from median)
+    scales = [e["scale"] for e in estimates]
+    median_scale = np.median(scales)
+    valid_estimates = [e for e in estimates if abs(e["scale"] - median_scale) / median_scale < 0.3]
+
+    if valid_estimates:
+        # Recalculate without outliers
+        total_weight = sum(e["confidence"] for e in valid_estimates)
+        weighted_scale = sum(e["scale"] * e["confidence"] for e in valid_estimates) / total_weight
+        detected_features = [f"room_{e['room']}" for e in valid_estimates]
+    else:
+        detected_features = [f"room_{e['room']}" for e in estimates]
+
+    return ScaleInfo(
+        mm_per_pixel=weighted_scale,
+        pixels_per_mm=1.0 / weighted_scale,
+        detected_features=detected_features,
+        confidence=min(0.95, avg_confidence),  # High confidence for standards-based method
+    )
+
+
 def estimate_scale_multi_method(
     image: np.ndarray,
     params: Optional[ProcessingParams] = None,
+    rooms: Optional[dict] = None,
 ) -> ScaleInfo:
     """Estimate scale using multiple methods and combine results.
 
     Args:
         image: Input floor plan image
         params: Processing parameters
+        rooms: Optional dictionary of segmented rooms (for standards-based estimation)
 
     Returns:
         Best ScaleInfo estimate
     """
-    methods = [
-        ("doors", estimate_scale_from_doors(image, params)),
-        ("grid", estimate_scale_from_grid(image)),
-    ]
+    methods = []
 
-    # Filter out None results
-    valid_methods = [(name, scale) for name, scale in methods if scale is not None]
+    # Method 1: Room standards (highest priority if rooms available)
+    if rooms:
+        room_scale = estimate_scale_from_room_standards(image, rooms)
+        if room_scale:
+            methods.append(("room_standards", room_scale))
 
-    if not valid_methods:
+    # Method 2: Door detection
+    door_scale = estimate_scale_from_doors(image, params)
+    if door_scale:
+        methods.append(("doors", door_scale))
+
+    # Method 3: Grid detection
+    grid_scale = estimate_scale_from_grid(image)
+    if grid_scale:
+        methods.append(("grid", grid_scale))
+
+    if not methods:
         # Fallback: assume a reasonable default scale
         # Typical apartment floor plans at ~1:100 scale scanned at 150 DPI
         # This gives roughly 0.16 mm/pixel
@@ -316,6 +404,6 @@ def estimate_scale_multi_method(
         )
 
     # Use the method with highest confidence
-    best_method, best_scale = max(valid_methods, key=lambda x: x[1].confidence)
+    best_method, best_scale = max(methods, key=lambda x: x[1].confidence)
 
     return best_scale
