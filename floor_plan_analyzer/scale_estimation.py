@@ -7,6 +7,12 @@ import numpy as np
 from scipy import ndimage
 
 from .models import ProcessingParams, ScaleInfo
+from .wall_extraction import (
+    extract_walls_morphological,
+    detect_doors_from_walls,
+    cluster_door_widths,
+)
+from .improved_door_detection import detect_doors_simple
 
 
 def detect_lines(image: np.ndarray, threshold: int = 100) -> Tuple[np.ndarray, np.ndarray]:
@@ -149,11 +155,13 @@ def estimate_scale_from_doors(
     image: np.ndarray,
     params: Optional[ProcessingParams] = None,
 ) -> Optional[ScaleInfo]:
-    """Estimate scale by detecting door openings.
+    """Estimate scale by detecting door openings (improved version).
 
     Finnish standard door widths:
-    - Interior doors: 800-900mm
+    - Interior doors: 800mm (most common)
     - Bathroom doors: 700-800mm
+
+    This improved version uses wall extraction to better detect doors.
 
     Args:
         image: Input floor plan image
@@ -165,38 +173,70 @@ def estimate_scale_from_doors(
     if params is None:
         params = ProcessingParams()
 
-    # Detect door candidates
-    door_candidates = detect_door_openings(image, min_width_px=15, max_width_px=80)
+    # Try improved simple door detection first
+    doors = detect_doors_simple(image, min_door_width=20, max_door_width=80)
 
-    if not door_candidates:
+    # If that doesn't work, try wall-based detection
+    if not doors or len(doors) < 3:
+        wall_mask = extract_walls_morphological(image)
+        doors = detect_doors_from_walls(
+            wall_mask,
+            min_gap_width=15,
+            max_gap_width=100,
+            min_wall_length=80
+        )
+
+    if not doors:
         return None
 
-    # Collect door widths (in pixels)
-    door_widths = []
-    for x, y, w, h, orientation in door_candidates:
-        if orientation == "vertical":
-            door_widths.append(w)
-        else:
-            door_widths.append(h)
+    # Collect door widths (the actual gap widths)
+    door_widths = [gap_width for _, _, _, _, _, gap_width in doors]
 
     if not door_widths:
         return None
 
-    # Use median door width for robustness
-    median_door_width_px = float(np.median(door_widths))
+    # Cluster door widths to find common sizes
+    clusters = cluster_door_widths(door_widths, tolerance=10.0)  # Increased tolerance
+
+    if not clusters:
+        return None
+
+    # Use the largest door width cluster with at least 2 doors
+    # (larger gaps are more likely to be actual doors, not partial detections)
+    valid_clusters = [(w, c) for w, c in clusters if c >= 2]
+
+    if not valid_clusters:
+        # Fall back to most common
+        most_common_width, count = clusters[0]
+    else:
+        # Use the largest width among valid clusters
+        most_common_width, count = max(valid_clusters, key=lambda x: x[0])
 
     # Assume standard Finnish interior door (800mm)
-    assumed_door_width_mm = (params.door_width_mm_range[0] + params.door_width_mm_range[1]) / 2
+    assumed_door_width_mm = 800.0
 
     # Calculate scale
-    mm_per_pixel = assumed_door_width_mm / median_door_width_px
+    mm_per_pixel = assumed_door_width_mm / most_common_width
     pixels_per_mm = 1.0 / mm_per_pixel
+
+    # Calculate confidence based on:
+    # - Number of doors detected
+    # - Consistency of door widths (how many in the main cluster)
+    door_count_confidence = min(1.0, len(doors) / 8.0)  # 8+ doors = full confidence
+    cluster_confidence = min(1.0, count / len(doors))  # All same size = full confidence
+    confidence = (door_count_confidence + cluster_confidence) / 2
 
     return ScaleInfo(
         mm_per_pixel=mm_per_pixel,
         pixels_per_mm=pixels_per_mm,
-        detected_features=[f"door_{i}" for i in range(len(door_candidates))],
-        confidence=min(1.0, len(door_candidates) / 5.0),  # More doors = higher confidence
+        detected_features=[f"door_{i}" for i in range(len(doors))],
+        confidence=confidence,
+        metadata={
+            'door_count': len(doors),
+            'most_common_width_px': most_common_width,
+            'cluster_count': count,
+            'all_clusters': clusters[:3],  # Top 3 clusters
+        }
     )
 
 

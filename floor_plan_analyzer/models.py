@@ -26,6 +26,7 @@ class ScaleInfo(BaseModel):
     pixels_per_mm: float
     detected_features: list[str] = Field(default_factory=list)
     confidence: float = 0.0
+    metadata: Dict = Field(default_factory=dict)
 
     @property
     def m2_per_pixel2(self) -> float:

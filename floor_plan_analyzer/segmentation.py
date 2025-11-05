@@ -1,11 +1,11 @@
 """Room segmentation from color-coded floor plans."""
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
 from scipy import ndimage
-from skimage import measure
+from skimage import measure, feature, segmentation
 
 from .models import RoomInfo
 
@@ -226,3 +226,141 @@ def visualize_segmentation(
                 )
 
     return vis
+
+
+def segment_rooms_watershed(
+    image: np.ndarray,
+    wall_mask: Optional[np.ndarray] = None,
+    min_room_area: int = 1000,
+) -> Dict[str, RoomInfo]:
+    """Segment rooms using watershed algorithm.
+
+    This is an alternative to color-based segmentation that works on
+    structural floor plans without color coding.
+
+    Args:
+        image: Input floor plan image
+        wall_mask: Optional pre-computed wall mask
+        min_room_area: Minimum room area in pixels
+
+    Returns:
+        Dictionary mapping room IDs to RoomInfo objects
+    """
+    # Convert to grayscale
+    if len(image.shape) == 3:
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = image.copy()
+
+    # Get wall mask if not provided
+    if wall_mask is None:
+        from .wall_extraction import extract_walls_morphological
+        wall_mask = extract_walls_morphological(image)
+
+    # Create background mask (everything that's not a wall)
+    background = cv2.bitwise_not(wall_mask)
+
+    # Distance transform to find room centers
+    dist_transform = cv2.distanceTransform(background, cv2.DIST_L2, 5)
+
+    # Find local maxima (room centers)
+    # Use a threshold to identify significant peaks
+    _, sure_fg = cv2.threshold(
+        dist_transform,
+        0.5 * dist_transform.max(),
+        255,
+        cv2.THRESH_BINARY
+    )
+    sure_fg = sure_fg.astype(np.uint8)
+
+    # Find sure background area
+    sure_bg = cv2.dilate(background, np.ones((3, 3), np.uint8), iterations=3)
+
+    # Find unknown region
+    unknown = cv2.subtract(sure_bg, sure_fg)
+
+    # Label markers for watershed
+    _, markers = cv2.connectedComponents(sure_fg)
+
+    # Add 1 to all markers so background is 1 instead of 0
+    markers = markers + 1
+
+    # Mark unknown region as 0
+    markers[unknown == 255] = 0
+
+    # Apply watershed
+    if len(image.shape) == 2:
+        image_color = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    else:
+        image_color = image.copy()
+
+    markers = cv2.watershed(image_color, markers)
+
+    # Extract rooms from markers
+    rooms = {}
+    unique_labels = np.unique(markers)
+
+    # Skip background (1) and boundary (-1)
+    room_labels = [l for l in unique_labels if l > 1]
+
+    for i, label in enumerate(room_labels):
+        # Create mask for this room
+        room_mask = (markers == label).astype(np.uint8) * 255
+
+        # Calculate area
+        pixel_area = float(np.sum(room_mask > 0))
+
+        # Skip if too small
+        if pixel_area < min_room_area:
+            continue
+
+        # Find contours
+        contours, _ = cv2.findContours(
+            room_mask,
+            cv2.RETR_EXTERNAL,
+            cv2.CHAIN_APPROX_SIMPLE
+        )
+
+        if not contours:
+            continue
+
+        total_points = sum(len(c) for c in contours)
+
+        # Generate a distinct color for visualization
+        hue = int((i * 180.0) / len(room_labels))
+        color_hsv = np.uint8([[[hue, 255, 255]]])
+        color_rgb = cv2.cvtColor(color_hsv, cv2.COLOR_HSV2RGB)[0][0]
+
+        room_name = f"Room_{i+1}"
+
+        rooms[room_name] = RoomInfo(
+            name=room_name,
+            color_rgb=tuple(int(c) for c in color_rgb),
+            pixel_area=pixel_area,
+            contour_points=total_points,
+        )
+
+    return rooms
+
+
+def merge_rooms_by_doors(
+    rooms: Dict[str, RoomInfo],
+    markers: np.ndarray,
+    doors: List[Tuple[int, int, int, int, str, float]],
+) -> Dict[str, RoomInfo]:
+    """Merge over-segmented rooms that aren't separated by doors.
+
+    This is a post-processing step for watershed segmentation.
+
+    Args:
+        rooms: Initial room segmentation
+        markers: Watershed markers
+        doors: List of detected doors
+
+    Returns:
+        Merged room dictionary
+    """
+    # TODO: Implement room merging logic
+    # This would check which room segments share boundaries without doors
+    # and merge them into single rooms
+    return rooms

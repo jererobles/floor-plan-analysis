@@ -9,6 +9,87 @@ from scipy import ndimage
 from .models import ProcessingParams
 
 
+def denoise_image(image: np.ndarray, strength: int = 10) -> np.ndarray:
+    """Denoise image to sharpen lines and reduce artifacts.
+
+    Args:
+        image: Input image in BGR format
+        strength: Denoising strength (higher = more denoising)
+
+    Returns:
+        Denoised image
+    """
+    if len(image.shape) == 3:
+        # Color image - use fastNlMeansDenoisingColored
+        denoised = cv2.fastNlMeansDenoisingColored(
+            image,
+            None,
+            h=strength,
+            hColor=strength,
+            templateWindowSize=7,
+            searchWindowSize=21
+        )
+    else:
+        # Grayscale image
+        denoised = cv2.fastNlMeansDenoising(
+            image,
+            None,
+            h=strength,
+            templateWindowSize=7,
+            searchWindowSize=21
+        )
+
+    return denoised
+
+
+def sharpen_image(image: np.ndarray) -> np.ndarray:
+    """Sharpen image to enhance line details.
+
+    Args:
+        image: Input image
+
+    Returns:
+        Sharpened image
+    """
+    # Create sharpening kernel
+    kernel = np.array([[-1, -1, -1],
+                      [-1,  9, -1],
+                      [-1, -1, -1]])
+
+    sharpened = cv2.filter2D(image, -1, kernel)
+    return sharpened
+
+
+def binarize_adaptive(image: np.ndarray, block_size: int = 15, c: int = 5) -> np.ndarray:
+    """Apply adaptive thresholding for better binarization.
+
+    Args:
+        image: Input image (BGR or grayscale)
+        block_size: Size of pixel neighborhood (must be odd)
+        c: Constant subtracted from mean
+
+    Returns:
+        Binary image (walls = 255, background = 0)
+    """
+    # Convert to grayscale if needed
+    if len(image.shape) == 3:
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = image.copy()
+
+    # Apply adaptive threshold - inverted so walls are white
+    binary = cv2.adaptiveThreshold(
+        gray,
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV,
+        block_size,
+        c
+    )
+
+    return binary
+
+
 def load_image(image_path: str) -> np.ndarray:
     """Load an image from disk.
 
